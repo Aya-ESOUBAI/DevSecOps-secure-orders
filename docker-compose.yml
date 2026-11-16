@@ -1,0 +1,11 @@
+# Keycloak en mode dev (identifiants de dev uniquement, a ne jamais utiliser en production).
+# Les 3 microservices se lancent depuis IntelliJ ou avec "mvn spring-boot:run".
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: start-dev
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    ports:
+      - "8080:8080"
