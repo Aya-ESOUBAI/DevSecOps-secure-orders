@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.client.ClientHttpRequestInterceptor;
 
 /**
  * Orchestre la requete client : order -> inventory (reserve) -> payment (pay).
@@ -32,9 +33,12 @@ public class OrderService {
     private final Map<String, Order> orders = new ConcurrentHashMap<>();
 
     public OrderService(@Value("${services.inventory.url}") String inventoryUrl,
-                        @Value("${services.payment.url}") String paymentUrl) {
-        this.inventory = RestClient.builder().baseUrl(inventoryUrl).build();
-        this.payment = RestClient.builder().baseUrl(paymentUrl).build();
+                        @Value("${services.payment.url}") String paymentUrl,
+                        ClientHttpRequestInterceptor bearerInterceptor) {
+        this.inventory = RestClient.builder().baseUrl(inventoryUrl)
+                .requestInterceptor(bearerInterceptor).build();
+        this.payment = RestClient.builder().baseUrl(paymentUrl)
+                .requestInterceptor(bearerInterceptor).build();
     }
 
     public Order create(OrderRequest req) {
