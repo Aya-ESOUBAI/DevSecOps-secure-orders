@@ -1,4 +1,5 @@
 # secure-orders : authentification et autorisation interservices
+[Projet Ingénierie des Systèmes Sécurisés.pdf](https://github.com/user-attachments/files/35186204/Projet.Ingenierie.des.Systemes.Securises.pdf)
 
 Projet ENSIAS 3A GL, Ingenierie des Systemes Securises (A.U. 2026/2027).
 Application de gestion de commandes a 3 microservices Spring Boot (Java 17, Maven).
