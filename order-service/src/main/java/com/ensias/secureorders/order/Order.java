@@ -10,8 +10,6 @@ public record Order(
         double total,
         String status,
         Instant createdAt,
-        String s) {
-    public String ownerUsername() {
-        return null;
-    }
+        String ownerUsername) {
+
 }
