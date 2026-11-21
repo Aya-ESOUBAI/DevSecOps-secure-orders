@@ -7,6 +7,11 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -24,6 +29,12 @@ import org.springframework.http.client.ClientHttpRequestInterceptor;
 public class OrderService {
 
     record ReserveRequest(String productId, int quantity) {}
+    record Product(
+            String productId,
+            String name,
+            int stock,
+            double unitPrice
+    ) {}
     record Reservation(String productId, int quantity, double unitPrice) {}
     record PaymentRequest(String orderId, double amount) {}
     record PaymentResult(String paymentId, String status) {}
@@ -41,51 +52,165 @@ public class OrderService {
                 .requestInterceptor(bearerInterceptor).build();
     }
 
+
     public Order create(OrderRequest req) {
+
+        // 1. Consulter le produit sans réserver le stock
+        Product product;
+        try {
+            product = inventory.get()
+                    .uri("/inventory/{id}", req.productId())
+                    .retrieve()
+                    .body(Product.class);
+        } catch (HttpClientErrorException e) {
+            throw new ResponseStatusException(
+                    e.getStatusCode(),
+                    "inventory-service: " + e.getResponseBodyAsString()
+            );
+        }
+
+        if (product == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY,
+                    "Empty response from inventory-service"
+            );
+        }
+
+        // 2. Calculer le montant
+        double total = product.unitPrice() * req.quantity();
+
+        // 3. Vérifier ABAC AVANT de réserver le stock
+        if (total > 10000 && !isAdmin()) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Only ADMIN can create orders above 10000"
+            );
+        }
+
+        // 4. Réserver le stock
         Reservation reservation;
         try {
             reservation = inventory.post()
                     .uri("/inventory/reserve")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(new ReserveRequest(req.productId(), req.quantity()))
+                    .body(new ReserveRequest(
+                            req.productId(),
+                            req.quantity()
+                    ))
                     .retrieve()
                     .body(Reservation.class);
         } catch (HttpClientErrorException e) {
-            throw new ResponseStatusException(e.getStatusCode(),
-                    "inventory-service: " + e.getResponseBodyAsString());
+            throw new ResponseStatusException(
+                    e.getStatusCode(),
+                    "inventory-service: " + e.getResponseBodyAsString()
+            );
+        }
+
+        if (reservation == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY,
+                    "Empty reservation response"
+            );
+        }
+
+        // Utiliser le montant réel retourné par la réservation
+        double reservedTotal =
+                reservation.unitPrice() * reservation.quantity();
+
+        // Protection supplémentaire si le prix change
+        if (reservedTotal > 10000 && !isAdmin()) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Only ADMIN can create orders above 10000"
+            );
         }
 
         String orderId = UUID.randomUUID().toString();
-        double total = reservation.unitPrice() * reservation.quantity();
 
+        // 5. Effectuer le paiement
         PaymentResult result;
         try {
             result = payment.post()
                     .uri("/payments")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(new PaymentRequest(orderId, total))
+                    .body(new PaymentRequest(orderId, reservedTotal))
                     .retrieve()
                     .body(PaymentResult.class);
         } catch (HttpClientErrorException e) {
-            throw new ResponseStatusException(e.getStatusCode(),
-                    "payment-service: " + e.getResponseBodyAsString());
+            throw new ResponseStatusException(
+                    e.getStatusCode(),
+                    "payment-service: " + e.getResponseBodyAsString()
+            );
         }
 
-        String status = "APPROVED".equals(result.status()) ? "CONFIRMED" : "PAYMENT_FAILED";
-        Order order = new Order(orderId, req.productId(), req.quantity(), total, status, Instant.now());
+        if (result == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY,
+                    "Empty response from payment-service"
+            );
+        }
+
+        // 6. Enregistrer la commande avec son propriétaire
+        String status = "APPROVED".equals(result.status())
+                ? "CONFIRMED"
+                : "PAYMENT_FAILED";
+
+        Order order = new Order(
+                orderId,
+                req.productId(),
+                req.quantity(),
+                reservedTotal,
+                status,
+                Instant.now(),
+                currentUsername()
+        );
+
         orders.put(orderId, order);
+
         return order;
     }
 
+
     public List<Order> findAll() {
-        return new ArrayList<>(orders.values());
+        if (isAdmin()) {
+            return new ArrayList<>(orders.values());
+        }
+
+        String username = currentUsername();
+
+        return orders.values().stream()
+                .filter(order -> username.equals(order.ownerUsername()))
+                .toList();
     }
 
     public Order findById(String id) {
         Order order = orders.get(id);
+
         if (order == null) {
-            throw new ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "order not found");
+            throw new ResponseStatusException(
+                    HttpStatus.NOT_FOUND,
+                    "order not found"
+            );
         }
+
+        if (!isAdmin() && !currentUsername().equals(order.ownerUsername())) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "You are not allowed to access this order"
+            );
+        }
+
         return order;
+    }
+    private String currentUsername() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        Jwt jwt = (Jwt) auth.getPrincipal();
+        return jwt.getClaimAsString("preferred_username");
+    }
+
+    private boolean isAdmin() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
     }
 }
