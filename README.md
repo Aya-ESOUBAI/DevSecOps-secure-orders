@@ -26,8 +26,8 @@ Produits de test : `P-100` (Laptop, 5000), `P-200` (Souris, 150), `P-300` (Clavi
 | Keycloak : realm, rôles, utilisateurs, clients | Fait |
 | Validation des JWT dans les 3 services | Fait |
 | Client credentials : `order-service` appelle les autres avec son propre token | Fait |
-| Autorisation RBAC / ABAC | En cours |
-| Tests de sécurité (401, 403, token expiré) | À faire |
+| Autorisation RBAC / ABAC | Fait |
+| Tests de sécurité (401, 403, token expiré) | Fait |
 | Bonus : mTLS ou pipeline | Si le temps le permet |
 
 Tous les endpoints exigent un token valide : un appel sans token renvoie **401**.
